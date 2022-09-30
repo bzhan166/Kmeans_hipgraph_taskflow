@@ -150,64 +150,18 @@ std::pair<std::vector<float>, std::vector<float>> gpu_normal_kernal(
     hipMemcpy(d_mx, h_mx.data(), K*sizeof(float), hipMemcpyHostToDevice);
     hipMemcpy(d_my, h_my.data(), K*sizeof(float), hipMemcpyHostToDevice);
 
+    for(int i = 0; i<M;i++)
+    {
     //init data on GPU
-    hipMemset(d_c, 0,  K*sizeof(float));
-    hipMemset(d_sx, 0,  K*sizeof(float));
-    hipMemset(d_sy, 0,  K*sizeof(float));
+        hipMemset(d_c, 0,  K*sizeof(float));
+        hipMemset(d_sx, 0,  K*sizeof(float));
+        hipMemset(d_sy, 0,  K*sizeof(float));
+        assign_clusters<<<dim3((N+1024-1)/1024, 1, 1), dim3(1024, 1, 1)>>> (d_px, d_py, N, d_mx, d_my, d_sx, d_sy, K, d_c);
+        compute_new_means<<<dim3(1, 1, 1), dim3(K, 1, 1)>>> (d_mx, d_my, d_sx, d_sy, d_c);
+    }
     
-    
-    assign_clusters<<<dim3((N+1024-1)/1024, 1, 1), dim3(1024, 1, 1)>>> (d_px, d_py, N, d_mx, d_my, d_sx, d_sy, K, d_c);
-
-    compute_new_means<<<dim3(1, 1, 1), dim3(K, 1, 1)>>> (d_mx, d_my, d_sx, d_sy, d_c);
-    
-    /*
-    //For Graph
-    hipStream_t stream;
-    hipGraph_t graph;
-    hipGraphNode_t graph_cluster, graph_means;
-    hipKernelNodeParams cluster_Params = { 0 };
-    hipKernelNodeParams compute_means_Params = { 0 };
-
-    hipGraphCreate(&graph, 0);
-    hipStreamCreateWithFlags(&stream, hipStreamNonBlocking);  
-    
-    //add cluster node parameters
-    hipMemset(&cluster_Params, 0, sizeof(cluster_Params));
-    cluster_Params.func = (void*)assign_clusters;
-    cluster_Params.gridDim = dim3((N+1024-1)/1024, 1, 1);
-    cluster_Params.blockDim = dim3(1024, 1, 1);
-    cluster_Params.sharedMemBytes = 0;
-    void* cluster_Args[9] = { (void*)&d_px, (void*)&d_py, &N, (void*)&d_mx, 
-    (void*)&d_my, (void*)&d_sx, (void*)&d_sy, &K, (void *)&d_c };
-    cluster_Params.kernelParams = cluster_Args;
-    cluster_Params.extra = NULL;
-    
-    //compute new means parameters
-    hipMemset(&compute_means_Params, 0, sizeof(compute_means_Params));
-    compute_means_Params.func = (void*)compute_new_means;
-    compute_means_Params.gridDim = dim3(1, 1, 1);
-    compute_means_Params.blockDim = dim3(K, 1, 1);
-    compute_means_Params.sharedMemBytes = 0;
-    void* compute_Args[5] = { (void*)&d_mx, (void*)&d_my, (void*)&d_sx, (void*)&d_sy,
-    (void*)&d_c};
-    compute_means_Params.kernelParams = compute_Args;
-    compute_means_Params.extra = NULL;
-
-    hipGraphAddKernelNode(&graph_cluster, graph, NULL, 0, &cluster_Params);
-    hipGraphAddKernelNode(&graph_means, graph, NULL, 0, &compute_means_Params);
-  
-    hipGraphAddDependencies(graph, &graph_cluster, &graph_means, 1);
-
-    hipGraphExec_t graphExec;
-    hipGraphInstantiate(&graphExec, graph, NULL, NULL, 0);
-  
-    hipGraphLaunch(graphExec, stream);
-    hipStreamSynchronize(stream);
-
-    hipGraphExecDestroy(graphExec);
-    hipGraphDestroy(graph);
-    hipStreamDestroy(stream);
-    */
+    hipMemcpy(h_mx.data(), d_mx , K*sizeof(float), hipMemcpyDeviceToHost);
+    hipMemcpy(h_my.data(), d_my , K*sizeof(float), hipMemcpyDeviceToHost);
 
     hipFree(d_px);
     hipFree(d_py);
@@ -249,17 +203,6 @@ std::pair<std::vector<float>, std::vector<float>> gpu_cond_tasks(
     hipMemcpy(d_py, h_py.data(), N*sizeof(float), hipMemcpyHostToDevice);
     hipMemcpy(d_mx, h_mx.data(), K*sizeof(float), hipMemcpyHostToDevice);
     hipMemcpy(d_my, h_my.data(), K*sizeof(float), hipMemcpyHostToDevice);
-
-    //init data on GPU
-    hipMemset(d_c, 0,  K*sizeof(float));
-    hipMemset(d_sx, 0,  K*sizeof(float));
-    hipMemset(d_sy, 0,  K*sizeof(float));
-    
-    /*
-    assign_clusters<<<dim3((N+1024-1)/1024, 1, 1), dim3(1024, 1, 1)>>> (d_px, d_py, N, d_mx, d_my, d_sx, d_sy, K, d_c);
-
-    compute_new_means<<<dim3(1, 1, 1), dim3(K, 1, 1)>>> (d_mx, d_my, d_sx, d_sy, d_c);
-    */
     
     //For Graph
     hipStream_t stream;
@@ -277,8 +220,7 @@ std::pair<std::vector<float>, std::vector<float>> gpu_cond_tasks(
     cluster_Params.gridDim = dim3((N+1024-1)/1024, 1, 1);
     cluster_Params.blockDim = dim3(1024, 1, 1);
     cluster_Params.sharedMemBytes = 0;
-    void* cluster_Args[9] = { (void*)&d_px, (void*)&d_py, &N, (void*)&d_mx, 
-    (void*)&d_my, (void*)&d_sx, (void*)&d_sy, &K, (void *)&d_c };
+    void* cluster_Args[9] = { (void*)&d_px, (void*)&d_py, &N, (void*)&d_mx, (void*)&d_my, (void*)&d_sx, (void*)&d_sy, &K, (void *)&d_c };
     cluster_Params.kernelParams = cluster_Args;
     cluster_Params.extra = NULL;
     
@@ -288,22 +230,32 @@ std::pair<std::vector<float>, std::vector<float>> gpu_cond_tasks(
     compute_means_Params.gridDim = dim3(1, 1, 1);
     compute_means_Params.blockDim = dim3(K, 1, 1);
     compute_means_Params.sharedMemBytes = 0;
-    void* compute_Args[5] = { (void*)&d_mx, (void*)&d_my, (void*)&d_sx, (void*)&d_sy,
-    (void*)&d_c};
+    void* compute_Args[5] = { (void*)&d_mx, (void*)&d_my, (void*)&d_sx, (void*)&d_sy, (void*)&d_c};
     compute_means_Params.kernelParams = compute_Args;
     compute_means_Params.extra = NULL;
 
-    hipGraphAddKernelNode(&graph_cluster, graph, NULL, 0, &cluster_Params);
-    hipGraphAddKernelNode(&graph_means, graph, NULL, 0, &compute_means_Params);
-  
-    hipGraphAddDependencies(graph, &graph_cluster, &graph_means, 1);
+    for(int i =0; i<M;i++)
+    {
+        //need to change to hipaddkernalmemset
+        //init data on GPU
+        hipMemset(d_c, 0,  K*sizeof(float));
+        hipMemset(d_sx, 0,  K*sizeof(float));
+        hipMemset(d_sy, 0,  K*sizeof(float));
 
+        hipGraphAddKernelNode(&graph_cluster, graph, NULL, 0, &cluster_Params);
+        hipGraphAddKernelNode(&graph_means, graph, NULL, 0, &compute_means_Params);
+  
+        hipGraphAddDependencies(graph, &graph_cluster, &graph_means, 1);
+    }
     hipGraphExec_t graphExec;
     hipGraphInstantiate(&graphExec, graph, NULL, NULL, 0);
   
     hipGraphLaunch(graphExec, stream);
     hipStreamSynchronize(stream);
-
+    
+    hipMemcpy(h_mx.data(), d_mx , K*sizeof(float), hipMemcpyDeviceToHost);
+    hipMemcpy(h_my.data(), d_my , K*sizeof(float), hipMemcpyDeviceToHost);
+    
     hipGraphExecDestroy(graphExec);
     hipGraphDestroy(graph);
     hipStreamDestroy(stream);

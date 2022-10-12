@@ -207,13 +207,44 @@ std::pair<std::vector<float>, std::vector<float>> gpu_cond_tasks(
     //For Graph
     hipStream_t stream;
     hipGraph_t graph;
-    hipGraphNode_t graph_cluster, graph_means;
+    hipGraphNode_t graph_cluster, graph_means, memsetNode_d_c, memsetNode_d_sx, memsetNode_d_sy;
+
     hipKernelNodeParams cluster_Params = { 0 };
     hipKernelNodeParams compute_means_Params = { 0 };
+    hipMemsetParams memsetParams_d_c = {0};
+    hipMemsetParams memsetParams_d_sx = {0};
+    hipMemsetParams memsetParams_d_sy = {0};
 
     hipGraphCreate(&graph, 0);
     hipStreamCreateWithFlags(&stream, hipStreamNonBlocking);  
     
+    //add memset d_c node parameters
+    hipMemset(&memsetParams_d_c, 0, sizeof(memsetParams_d_c));
+    memsetParams_d_c.dst = (void*)d_c;
+    memsetParams_d_c.value = 0;
+    memsetParams_d_c.pitch = 0;
+    memsetParams_d_c.elementSize = sizeof(float);
+    memsetParams_d_c.width = K;
+    memsetParams_d_c.height = 1;
+
+    //add memset d_sx node parameters
+    hipMemset(&memsetParams_d_sx, 0, sizeof(memsetParams_d_sx));
+    memsetParams_d_sx.dst = (void*)d_sx;
+    memsetParams_d_sx.value = 0;
+    memsetParams_d_sx.pitch = 0;
+    memsetParams_d_sx.elementSize = sizeof(float);
+    memsetParams_d_sx.width = K;
+    memsetParams_d_sx.height = 1;
+
+    //add memset d_sy node parameters
+    hipMemset(&memsetParams_d_sy, 0, sizeof(memsetParams_d_sy));
+    memsetParams_d_sy.dst = (void*)d_sy;
+    memsetParams_d_sy.value = 0;
+    memsetParams_d_sy.pitch = 0;
+    memsetParams_d_sy.elementSize = sizeof(float);
+    memsetParams_d_sy.width = K;
+    memsetParams_d_sy.height = 1;
+
     //add cluster node parameters
     hipMemset(&cluster_Params, 0, sizeof(cluster_Params));
     cluster_Params.func = (void*)assign_clusters;
@@ -236,15 +267,17 @@ std::pair<std::vector<float>, std::vector<float>> gpu_cond_tasks(
 
     for(int i =0; i<M;i++)
     {
-        //need to change to hipaddkernalmemset
         //init data on GPU
-        hipMemset(d_c, 0,  K*sizeof(float));
-        hipMemset(d_sx, 0,  K*sizeof(float));
-        hipMemset(d_sy, 0,  K*sizeof(float));
+        hipGraphAddMemsetNode(&memsetNode_d_c, graph, NULL, 0, &memsetParams_d_c);
+        hipGraphAddMemsetNode(&memsetNode_d_sx, graph, NULL, 0, &memsetParams_d_sx);
+        hipGraphAddMemsetNode(&memsetNode_d_sy, graph, NULL, 0, &memsetParams_d_sy);
 
         hipGraphAddKernelNode(&graph_cluster, graph, NULL, 0, &cluster_Params);
         hipGraphAddKernelNode(&graph_means, graph, NULL, 0, &compute_means_Params);
-  
+
+        hipGraphAddDependencies(graph, &memsetNode_d_c, &memsetNode_d_sx, 1);
+        hipGraphAddDependencies(graph, &memsetNode_d_sx, &memsetNode_d_sy, 1);
+        hipGraphAddDependencies(graph, &memsetNode_d_sy, &graph_cluster, 1);
         hipGraphAddDependencies(graph, &graph_cluster, &graph_means, 1);
     }
     hipGraphExec_t graphExec;
